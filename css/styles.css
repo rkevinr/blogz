@@ -69,4 +69,12 @@ nav ul li {
 
 nav #user-account {
     float: right;
+    margin-right: 150px;
+}
+
+a.login {
+    color: #BB6611;
+    background-color: #FFEE77;
+    font-style: bold;
+    font-size:  16px;
 }

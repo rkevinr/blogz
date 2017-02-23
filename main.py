@@ -2,9 +2,11 @@ import webapp2, jinja2, os, re
 from google.appengine.ext import db
 from models import Post, User
 import hashutils
+import logging 
 
 template_dir = os.path.join(os.path.dirname(__file__), 'templates')
 jinja_env = jinja2.Environment(loader = jinja2.FileSystemLoader(template_dir), autoescape = True)
+jinja_env.globals['current_user'] = None  # FIXME:  is this sufficient init?
 
 class BlogHandler(webapp2.RequestHandler):
     """ Utility class for gathering various useful methods that are used by most request handlers """
@@ -26,17 +28,37 @@ class BlogHandler(webapp2.RequestHandler):
     def get_user_by_name(self, username):
         """ Get a user object from the db, based on their username """
         user = db.GqlQuery("SELECT * FROM User WHERE username = '%s'" % username)
+        logging.info("user obj = " + str(user))
         if user:
             return user.get()
+
+    def set_jinja_globals(self, user=None, user_id=None, current_user=None):
+        jinja_env.globals['user'] = user
+        jinja_env.globals['user_id'] = user_id
+        if user:
+            jinja_env.globals['current_user'] = user.username
+        # logging.info(jinja_env.globals['user_id'])
+        # if user:
+            # logging.info(jinja_env.globals['user'])
+            # logging.info(jinja_env.globals['current_user'])
 
     def login_user(self, user):
         """ Login a user specified by a User object user """
         user_id = user.key().id()
         self.set_secure_cookie('user_id', str(user_id))
+        if user:
+            self.set_jinja_globals(user=user, user_id=user_id, 
+                                    current_user=user.username)
+            logging.info("SET:  user_id, username: " +
+                            str(user_id) + ", " + user.username)
 
     def logout_user(self):
         """ Logout a user specified by a User object user """
+        logging.info("...UNSET (logout) current user") 
+        jinja_env.globals['current_user'] = None
         self.set_secure_cookie('user_id', '')
+        self.set_jinja_globals()  # dflts: user=None, user_id=None, username=""
+
 
     def read_secure_cookie(self, name):
         cookie_val = self.request.cookies.get(name)
@@ -59,6 +81,7 @@ class BlogHandler(webapp2.RequestHandler):
 
         if not self.user and self.request.path in auth_paths:
             self.redirect('/login')
+            
 
 class IndexHandler(BlogHandler):
 
@@ -66,7 +89,10 @@ class IndexHandler(BlogHandler):
         """ List all blog users """
         users = User.all()
         t = jinja_env.get_template("index.html")
-        response = t.render(users = users)
+        u = jinja_env.globals['current_user']
+        if u:
+            logging.info("j_e.globals[curr user] = [" + u + "]")
+        response = t.render(users = users, logged_in_user = u)
         self.response.write(response)
 
 class BlogIndexHandler(BlogHandler):
@@ -105,6 +131,7 @@ class BlogIndexHandler(BlogHandler):
             next_page = None
 
         # render the page
+        u = jinja_env.globals['current_user']  # pass as: logged_in_user = u
         t = jinja_env.get_template("blog.html")
         response = t.render(
                     posts=posts,
@@ -112,15 +139,18 @@ class BlogIndexHandler(BlogHandler):
                     page_size=self.page_size,
                     prev_page=prev_page,
                     next_page=next_page,
-                    username=username)
+                    username=username,
+                    logged_in_user = u)
         self.response.out.write(response)
 
 class NewPostHandler(BlogHandler):
 
     def render_form(self, title="", body="", error=""):
         """ Render the new post form with or without an error, based on parameters """
+        u = jinja_env.globals['current_user']  # pass as: logged_in_user = u
         t = jinja_env.get_template("newpost.html")
-        response = t.render(title=title, body=body, error=error)
+        response = t.render(title=title, body=body, error=error, 
+                                logged_in_user = u)
         self.response.out.write(response)
 
     def get(self):
@@ -153,13 +183,14 @@ class ViewPostHandler(BlogHandler):
         """ Render a page with post determined by the id (via the URL/permalink) """
 
         post = Post.get_by_id(int(id))
+        u = jinja_env.globals['current_user']  # pass as: logged_in_user = u
         if post:
             t = jinja_env.get_template("post.html")
-            response = t.render(post=post)
+            response = t.render(post=post, logged_in_user = u)
         else:
             error = "there is no post with id %s" % id
             t = jinja_env.get_template("404.html")
-            response = t.render(error=error)
+            response = t.render(error=error, logged_in_user = u)
 
         self.response.out.write(response)
 
@@ -194,8 +225,9 @@ class SignupHandler(BlogHandler):
             return email
 
     def get(self):
+        u = jinja_env.globals['current_user']  # pass as: logged_in_user = u
         t = jinja_env.get_template("signup.html")
-        response = t.render(errors={})
+        response = t.render(errors={}, logged_in_user = u)
         self.response.out.write(response)
 
     def post(self):
@@ -250,8 +282,10 @@ class SignupHandler(BlogHandler):
                 errors['email_error'] = "That's not a valid email"
 
         if has_error:
+            u = jinja_env.globals['current_user']  # pass as: logged_in_user = u
             t = jinja_env.get_template("signup.html")
-            response = t.render(username=username, email=email, errors=errors)
+            response = t.render(username=username, email=email, errors=errors,
+                                    logged_in_user = u)
             self.response.out.write(response)
         else:
             self.redirect('/blog/newpost')
@@ -262,8 +296,10 @@ class LoginHandler(BlogHandler):
 
     def render_login_form(self, errors={}, username=""):
         """ Render the login form with or without an error, based on parameters """
+        u = jinja_env.globals['current_user']  # pass as: logged_in_user = u
         t = jinja_env.get_template("login.html")
-        response = t.render(errors=errors, username=username)
+        response = t.render(errors=errors, username=username,
+                                logged_in_user = u)
         self.response.out.write(response)
 
     def get(self):
@@ -276,10 +312,6 @@ class LoginHandler(BlogHandler):
         # get the user from the database
         user = self.get_user_by_name(submitted_username)
 
-        '''
-        errors['username_error'] = "That's not a valid username"
-        errors['password_error'] = "That's not a valid password"
-        '''
         errors = {}
 
         if not user:

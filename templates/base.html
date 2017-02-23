@@ -13,8 +13,20 @@
                 <li><a href="/blog">all posts</a></li>
                 <li><a href="/blog/newpost">new post</a></li>
             </ul>
+            <ul id="user-account">
+                <li>
+                  {% block login %}
+                    {% if logged_in_user %}
+                        <a class="login" href="/logout">{{ logged_in_user }} [logout]</a>
+                    {% else %}
+                        <a class="login" href="/login">login/register</a>
+                    {% endif %}
+                  {% endblock %}
+                </li>
+            </ul>
         </nav>
         {% block content %}
         {% endblock %}
+
     </body>
 </html>
