@@ -2,7 +2,7 @@
 
 {% block content %}
 
-<h1>blog posts!</h1>
+<h1>blog posts{% if username %} by {{ username }}{% endif %}</h1>
 
 {% for post in posts %}
 
